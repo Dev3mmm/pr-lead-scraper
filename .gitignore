@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+data.db
+PR_Leads.xlsx
+PR_Leads.csv
+*.log
+.env
+*.db
