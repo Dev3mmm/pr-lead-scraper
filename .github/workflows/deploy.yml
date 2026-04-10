@@ -8,7 +8,7 @@ on:
 jobs:
   run-app:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v3
       
@@ -26,19 +26,22 @@ jobs:
           sudo dpkg -i cloudflared-linux-amd64.deb
       
       - name: Start app and tunnel
+        env:
+          PORT: 5000
         run: |
           python app.py &
           APP_PID=$!
-          sleep 5
-          cloudflared tunnel --url http://localhost:10000 --no-autoupdate 2>&1 | tee /tmp/tunnel.log &
-          sleep 10
+          sleep 8
+          cloudflared tunnel --url http://localhost:5000 --no-autoupdate 2>&1 | tee /tmp/tunnel.log &
+          sleep 15
           TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1)
-          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
-          echo "App running at: $TUNNEL_URL"
+          echo "=== LIVE APP URL: ${TUNNEL_URL} ==="
           # Post URL to GitHub issue comment
           curl -s -X POST \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"body\": \"App is live at: $TUNNEL_URL\"}" \
+            -d "{\"body\": \"## App is LIVE\\n\\nURL: ${TUNNEL_URL}\\n\\nThis URL is valid for up to 6 hours.\"}" \
             "https://api.github.com/repos/${{ github.repository }}/issues/1/comments" || true
+          echo "URL posted to issue #1"
+          # Keep running
           wait $APP_PID
