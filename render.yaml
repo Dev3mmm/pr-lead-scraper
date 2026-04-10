@@ -2,8 +2,11 @@ services:
   - type: web
     name: pr-lead-scraper
     env: python
+    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
+    startCommand: gunicorn app:app --worker-class eventlet -w 1 -b 0.0.0.0:$PORT
     envVars:
       - key: PORT
         value: 10000
+      - key: PYTHONUNBUFFERED
+        value: "1"
