@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 import re, time, sqlite3, random, threading, os, json, csv, io
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
@@ -11,8 +14,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "pr-scraper-2026"
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", logger=False, engineio_logger=False)
+app.config["SECRET_KEY"] = "pr-scraper-2026"h
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet", logger=False, engineio_logger=False)
 
 DB_FILE = "data.db"
 OUTPUT_FILE = "PR_Leads.xlsx"
