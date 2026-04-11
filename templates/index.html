@@ -1,324 +1,358 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PR Lead Scraper</title>
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<style>
-:root[data-theme="dark"] {
-  --bg: #0d1117; --sidebar-bg: #161b22; --card-bg: #21262d; --border: #30363d;
-  --text: #e6edf3; --text-muted: #7d8590; --accent: #58a6ff; --accent2: #3fb950;
-  --warn: #d29922; --danger: #f85149; --row-alt: #1c2128; --input-bg: #0d1117;
-  --shadow: 0 8px 24px rgba(0,0,0,0.4);
-}
-:root[data-theme="light"] {
-  --bg: #f6f8fa; --sidebar-bg: #ffffff; --card-bg: #ffffff; --border: #d0d7de;
-  --text: #24292f; --text-muted: #656d76; --accent: #0969da; --accent2: #1a7f37;
-  --warn: #9a6700; --danger: #cf222e; --row-alt: #f6f8fa; --input-bg: #ffffff;
-  --shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PR Lead Scraper</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    :root[data-theme="dark"] {
+      --bg: #0d1117; --sidebar-bg: #161b22; --card-bg: #21262d; --border: #30363d;
+      --text: #e6edf3; --text-muted: #7d8590; --accent: #58a6ff; --accent2: #3fb950;
+      --warn: #d29922; --danger: #f85149; --row-alt: #1c2128; --input-bg: #0d1117;
+      --shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    :root[data-theme="light"] {
+      --bg: #f6f8fa; --sidebar-bg: #ffffff; --card-bg: #ffffff; --border: #d0d7de;
+      --text: #24292f; --text-muted: #656d76; --accent: #0969da; --accent2: #1a7f37;
+      --warn: #9a6700; --danger: #cf222e; --row-alt: #f6f8fa; --input-bg: #ffffff;
+      --shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
 
-/* TOP BAR */
-.topbar { background: var(--sidebar-bg); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-.topbar-left { display: flex; align-items: center; gap: 12px; }
-.topbar-title { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-.status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; }
-.status-dot.running { background: var(--accent2); animation: pulse 1.5s infinite; }
-@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
-.topbar-right { display: flex; align-items: center; gap: 12px; }
-.theme-btn { background: none; border: 1px solid var(--border); color: var(--text); cursor: pointer; padding: 6px 12px; border-radius: 6px; font-size: 13px; transition: all 0.2s; }
-.theme-btn:hover { background: var(--card-bg); }
+    /* Sidebar */
+    .sidebar { width: 300px; min-width: 280px; background: var(--sidebar-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .sidebar-header h1 { font-size: 15px; font-weight: 700; color: var(--text); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); display: inline-block; margin-right: 6px; }
+    .status-dot.running { background: var(--accent2); animation: pulse 1.2s ease infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .sidebar-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+    .sidebar-body label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; display: block; margin: 12px 0 4px; }
+    .sidebar-body input[type=date], .sidebar-body input[type=number], .sidebar-body input[type=text] {
+      width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--input-bg); color: var(--text); font-size: 13px; }
+    .sidebar-body input:focus { outline: none; border-color: var(--accent); }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent2); color: #fff; width: 100%; justify-content: center; margin-top: 8px; }
+    .btn-secondary { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-sm { padding: 4px 8px; font-size: 11px; }
+    .sites-controls { display: flex; gap: 6px; margin-bottom: 8px; }
+    .sites-controls button { flex: 1; padding: 5px; border-radius: 5px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); font-size: 11px; cursor: pointer; }
+    .sites-controls button:hover { background: var(--row-alt); }
+    #sitesList { max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+    .site-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; }
+    .site-item:hover { background: var(--row-alt); }
+    .site-item input[type=checkbox] { cursor: pointer; }
+    .site-item label { font-size: 12px; cursor: pointer; flex: 1; }
+    .rss-badge { font-size: 9px; padding: 1px 4px; background: #1f6feb; color: #fff; border-radius: 3px; font-weight: 600; }
+    .custom-site-row { display: flex; gap: 6px; margin-top: 6px; }
+    .custom-site-row input { flex: 1; }
+    #addSiteResult { font-size: 11px; margin-top: 4px; }
+    .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+    .export-row { display: flex; gap: 6px; }
+    .export-row .btn { flex: 1; justify-content: center; font-size: 11px; }
 
-/* LAYOUT */
-.layout { display: flex; flex: 1; overflow: hidden; }
-.sidebar { width: 280px; background: var(--sidebar-bg); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; }
-.main { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    /* Main */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .main-header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .stats-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; text-align: center; min-width: 90px; }
+    .stat-card .num { font-size: 22px; font-weight: 700; }
+    .stat-card .lbl { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+    .stat-card.green .num { color: var(--accent2); }
+    .stat-card.amber .num { color: var(--warn); }
+    .stat-card.red .num { color: var(--danger); }
 
-/* SIDEBAR COMPONENTS */
-.sidebar-section { display: flex; flex-direction: column; gap: 8px; }
-.sidebar-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); }
-.form-row { display: flex; flex-direction: column; gap: 4px; }
-.form-row label { font-size: 12px; color: var(--text-muted); }
-input[type="date"], input[type="number"], input[type="text"] {
-  background: var(--input-bg); border: 1px solid var(--border); color: var(--text);
-  padding: 7px 10px; border-radius: 6px; font-size: 13px; width: 100%;
-  transition: border-color 0.2s;
-}
-input:focus { outline: none; border-color: var(--accent); }
-.btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
-.btn-primary { background: #238636; color: #fff; }
-.btn-primary:hover { background: #2ea043; }
-.btn-primary:disabled { background: #21262d; color: var(--text-muted); cursor: not-allowed; }
-.btn-danger { background: #da3633; color: #fff; }
-.btn-danger:hover { background: #f85149; }
-.btn-secondary { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); }
-.btn-secondary:hover { background: var(--border); }
-.btn-export { background: #1f6feb; color: #fff; }
-.btn-export:hover { background: #388bfd; }
-.btn-sm { font-size: 11px; padding: 4px 8px; width: auto; border-radius: 4px; }
+    .chart-area { display: flex; align-items: center; gap: 12px; }
+    canvas { display: block; }
+    .legend { font-size: 11px; }
+    .legend div { margin-bottom: 3px; }
 
-.sites-header { display: flex; gap: 6px; flex-wrap: wrap; }
-.sites-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
-.site-item { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
-.site-item:hover { background: var(--card-bg); }
-.site-item input[type="checkbox"] { accent-color: var(--accent2); width: 14px; height: 14px; cursor: pointer; }
-.site-item label { font-size: 12px; cursor: pointer; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rss-badge { font-size: 9px; background: var(--accent2); color: #fff; padding: 1px 4px; border-radius: 3px; opacity: 0.8; }
+    /* Progress */
+    .progress-wrap { display: none; padding: 0 20px 6px; }
+    .progress-wrap.visible { display: block; }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--accent2); transition: width .3s; }
+    .progress-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: flex; justify-content: space-between; }
 
-/* STAT CARDS */
-.stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
-.stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
-.stat-card.total::before { background: var(--accent); }
-.stat-card.found::before { background: var(--accent2); }
-.stat-card.no-email::before { background: var(--warn); }
-.stat-card.failed::before { background: var(--danger); }
-.stat-number { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
-.stat-label { font-size: 12px; color: var(--text-muted); }
-.stat-card.found .stat-number { color: var(--accent2); }
-.stat-card.no-email .stat-number { color: var(--warn); }
-.stat-card.failed .stat-number { color: var(--danger); }
-.stat-card.total .stat-number { color: var(--accent); }
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 20px; gap: 0; }
+    .tab { padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .tab-content.active { display: flex; }
 
-/* PROGRESS */
-.progress-bar-wrap { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: none; }
-.progress-bar-wrap.visible { display: block; }
-.progress-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.progress-site { font-size: 13px; font-weight: 600; }
-.progress-pct { font-size: 13px; color: var(--text-muted); }
-.progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px; transition: width 0.5s ease; }
+    /* Table */
+    .table-area { flex: 1; overflow: auto; padding: 0 20px 20px; }
+    .filter-row { padding: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .filter-row input, .filter-row select { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text); font-size: 12px; }
+    .filter-row input:focus, .filter-row select:focus { outline: none; border-color: var(--accent); }
+    .filter-row input[type=text] { flex: 1; min-width: 160px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { position: sticky; top: 0; background: var(--sidebar-bg); padding: 8px 10px; text-align: left; font-weight: 600; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid var(--border); z-index: 2; }
+    td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tr:nth-child(even) { background: var(--row-alt); }
+    tr:hover { background: rgba(88,166,255,.06); }
 
-/* MINI CHART */
-.mini-chart { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-.mini-chart-title { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
-.donut-wrap { display: flex; align-items: center; gap: 16px; }
-canvas#donutChart { max-width: 80px; max-height: 80px; }
-.chart-legend { display: flex; flex-direction: column; gap: 6px; }
-.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+    .pill.found { background: rgba(63,185,80,.15); color: var(--accent2); }
+    .pill.no_email { background: rgba(210,153,34,.15); color: var(--warn); }
+    .pill.no_company { background: rgba(248,81,73,.15); color: var(--danger); }
 
-/* SEARCH BAR */
-.search-bar { display: flex; gap: 8px; align-items: center; }
-.search-bar input { flex: 1; }
-.filter-select { background: var(--input-bg); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; }
+    .score-bar { display: flex; align-items: center; gap: 3px; }
+    .score-dots { display: flex; gap: 2px; }
+    .score-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--border); }
+    .score-dot.filled { background: var(--accent2); }
 
-/* TABS */
-.tabs { display: flex; border-bottom: 1px solid var(--border); gap: 0; }
-.tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; transition: all 0.2s; }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.tab-content { display: none; }
-.tab-content.active { display: block; }
+    .dup-badge { font-size: 9px; padding: 1px 4px; background: rgba(248,81,73,.2); color: var(--danger); border-radius: 3px; margin-left: 4px; font-weight: 600; }
+    #dupCount { font-size: 11px; color: var(--danger); }
+    #resultsCount { font-size: 12px; color: var(--text-muted); }
 
-/* TABLE */
-.table-wrap { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { background: var(--sidebar-bg); padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
-td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-tr:last-child td { border-bottom: none; }
-tr:nth-child(even) td { background: var(--row-alt); }
-tr:hover td { background: var(--border); }
-.pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-.pill.found { background: #1a4220; color: #3fb950; }
-.pill.no_email { background: #3d2e00; color: #d29922; }
-.pill.no_company { background: #3d1212; color: #f85149; }
-.score-bar { display: inline-flex; align-items: center; gap: 4px; }
-.score-dots { display: flex; gap: 2px; }
-.score-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
-.score-dot.filled { background: var(--accent2); }
-.dup-badge { font-size: 10px; background: #4b3800; color: #d29922; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+    /* Emails tab */
+    .emails-table td .email-clickable { cursor: pointer; color: var(--accent); }
+    .emails-table td .email-clickable:hover { text-decoration: underline; }
+    .copy-tick { color: var(--accent2); font-size: 10px; margin-left: 4px; display: none; }
+    .copy-tick.show { display: inline; }
+    .hot-badge { color: #ffd700; font-size: 14px; margin-right: 4px; }
+    .email-src-badge { display: inline-block; padding: 1px 5px; border-radius: 8px; font-size: 9px; font-weight: 600; margin-left: 4px; }
+    .email-src-badge.pr-body { background: rgba(63,185,80,.2); color: var(--accent2); }
+    .email-src-badge.website { background: rgba(88,166,255,.2); color: var(--accent); }
+    .best-email-cell { color: var(--accent2); font-weight: 600; }
 
-/* LOG */
-.log-container { background: #0a0c10; border: 1px solid var(--border); border-radius: 10px; font-family: 'JetBrains Mono','Fira Code',monospace; font-size: 12px; line-height: 1.6; padding: 12px; height: 500px; overflow-y: auto; }
-.log-line { display: flex; gap: 10px; padding: 1px 0; }
-.log-ts { color: #484f58; flex-shrink: 0; }
-.log-line.success .log-msg { color: #3fb950; }
-.log-line.warn .log-msg { color: #d29922; }
-.log-line.error .log-msg { color: #f85149; }
-.log-line.info .log-msg { color: #e6edf3; }
-.log-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.log-title { font-size: 13px; color: var(--text-muted); }
+    /* Log */
+    #logContainer { flex: 1; overflow-y: auto; padding: 12px 20px; font-family: 'JetBrains Mono','Fira Code',monospace; font-size: 11px; line-height: 1.7; }
+    .log-line { display: flex; gap: 10px; padding: 1px 0; }
+    .log-line.success .log-msg { color: var(--accent2); }
+    .log-line.error .log-msg { color: var(--danger); }
+    .log-line.warn .log-msg { color: var(--warn); }
+    .log-ts { color: var(--text-muted); flex-shrink: 0; }
 
-/* HISTORY */
-.history-table { font-size: 12px; }
-.history-table th, .history-table td { padding: 8px 10px; }
+    /* History */
+    .history-wrap { flex: 1; overflow-y: auto; padding: 20px; }
 
-/* SPINNER */
-@keyframes spin { to { transform: rotate(360deg); } }
-.spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
+    /* Empty state */
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .empty-state svg { margin-bottom: 12px; opacity: .4; }
+    .empty-state p { font-size: 14px; }
 
-.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
-.empty-state h3 { font-size: 18px; margin-bottom: 8px; }
-</style>
+    /* Spinner */
+    .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* Try Again button */
+    .try-again-btn { padding: 2px 7px; font-size: 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text-muted); cursor: pointer; }
+    .try-again-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Source icon */
+    .src-icon { margin-left: 4px; font-size: 11px; }
+  </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="topbar-left">
-    <span class="status-dot" id="statusDot"></span>
-    <span class="topbar-title">PR Lead Scraper</span>
-    <span id="runningLabel" style="font-size:12px;color:var(--text-muted);display:none">● Scraping...</span>
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1><span class="status-dot" id="statusDot"></span> PR Lead Scraper</h1>
+    <button class="btn btn-secondary btn-sm" onclick="toggleTheme()">☀ Light / ☾ Dark</button>
   </div>
-  <div class="topbar-right">
-    <span style="font-size:12px;color:var(--text-muted)" id="dupCount"></span>
-    <button class="theme-btn" onclick="toggleTheme()">☀ Light / ☾ Dark</button>
+  <div class="sidebar-body">
+    <label>Date Range</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:11px;color:var(--text-muted)">From</span>
+      <input type="date" id="dateFrom">
+      <span style="font-size:11px;color:var(--text-muted)">To</span>
+      <input type="date" id="dateTo">
+    </div>
+    <label>Options</label>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:12px">Max pages per site</span>
+      <input type="number" id="maxPages" value="3" min="1" max="20" style="width:60px">
+    </div>
+    <label>Add Custom Site</label>
+    <div class="custom-site-row">
+      <input type="text" id="customSite" placeholder="https://example.com">
+      <button class="btn btn-secondary btn-sm" onclick="addSite()">+ Discover &amp; Add</button>
+    </div>
+    <div id="addSiteResult"></div>
+    <label>Sites</label>
+    <div class="sites-controls">
+      <button onclick="selectAll()">All</button>
+      <button onclick="selectNone()">None</button>
+      <button onclick="selectRSS()">RSS Only</button>
+    </div>
+    <div id="sitesList"></div>
   </div>
-</div>
-
-<div class="layout">
-  <!-- SIDEBAR -->
-  <div class="sidebar">
-    <div class="sidebar-section">
-      <div class="sidebar-label">Date Range</div>
-      <div class="form-row"><label>From</label><input type="date" id="dateFrom" value="2026-04-01"></div>
-      <div class="form-row"><label>To</label><input type="date" id="dateTo"></div>
+  <div class="sidebar-footer">
+    <button class="btn btn-primary" id="startBtn" onclick="startJob()">
+      <span class="spinner" id="startSpinner"></span>
+      Start Scraping
+    </button>
+    <button class="btn btn-danger" id="stopBtn" onclick="stopJob()" style="display:none">⏹ Stop</button>
+    <div class="export-row">
+      <button class="btn btn-secondary" onclick="exportExcel()">⬇ Export Excel</button>
+      <button class="btn btn-secondary" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Options</div>
-      <div class="form-row"><label>Max pages per site</label><input type="number" id="maxPages" value="3" min="1" max="20"></div>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Add Custom Site</div>
-      <div class="form-row"><input type="text" id="customSite" placeholder="e.g. cryptonewsland.com"></div>
-      <button class="btn btn-secondary" onclick="addSite()">+ Discover & Add</button>
-      <div id="addSiteResult" style="font-size:12px;color:var(--text-muted)"></div>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Sites</div>
-      <div class="sites-header">
-        <button class="btn btn-secondary btn-sm" onclick="selectAll()">All</button>
-        <button class="btn btn-secondary btn-sm" onclick="selectNone()">None</button>
-        <button class="btn btn-secondary btn-sm" onclick="selectRSS()">RSS Only</button>
-      </div>
-      <div class="sites-list" id="sitesList"></div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto;padding-top:12px;border-top:1px solid var(--border)">
-      <button class="btn btn-primary" id="startBtn" onclick="startJob()"><span class="spinner" id="startSpinner" style="display:none"></span> Start Scraping</button>
-      <button class="btn btn-danger" id="stopBtn" onclick="stopJob()" style="display:none">⏹ Stop</button>
-      <button class="btn btn-export" onclick="exportExcel()">⬇ Export Excel</button>
-      <button class="btn btn-export" onclick="exportCSV()" style="background:#6f42c1">⬇ Export CSV</button>
-      <button class="btn btn-secondary" onclick="clearData()" style="color:var(--danger)">🗑 Clear All Data</button>
-    </div>
+    <button class="btn btn-danger" onclick="clearData()" style="font-size:11px">🗑 Clear All Data</button>
   </div>
+</aside>
 
-  <!-- MAIN AREA -->
-  <div class="main">
-    <!-- Stat Cards -->
-    <div class="stat-cards">
-      <div class="stat-card total"><div class="stat-number" id="statTotal">0</div><div class="stat-label">Total PRs Processed</div></div>
-      <div class="stat-card found"><div class="stat-number" id="statFound">0</div><div class="stat-label">Emails Found</div></div>
-      <div class="stat-card no-email"><div class="stat-number" id="statNoEmail">0</div><div class="stat-label">No Email Found</div></div>
-      <div class="stat-card failed"><div class="stat-number" id="statFailed">0</div><div class="stat-label">Failed / No Company</div></div>
-    </div>
-
-    <!-- Progress + Chart row -->
-    <div style="display:grid;grid-template-columns:1fr 280px;gap:12px">
-      <div class="progress-bar-wrap" id="progressWrap">
-        <div class="progress-info">
-          <div>
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">Currently scraping</div>
-            <div class="progress-site" id="currentSite">—</div>
-          </div>
-          <div class="progress-pct" id="progressPct">0%</div>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-        <div style="margin-top:8px;font-size:11px;color:var(--text-muted)" id="progressDetail">Waiting...</div>
+<!-- Main -->
+<main class="main">
+  <div class="main-header">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="num" id="statTotal">0</div>
+        <div class="lbl">Total PRs Processed</div>
       </div>
-      <div class="mini-chart">
-        <div class="mini-chart-title">Found vs Not Found</div>
-        <div class="donut-wrap">
-          <canvas id="donutChart" width="80" height="80"></canvas>
-          <div class="chart-legend">
-            <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div><span id="legendFound">Found: 0</span></div>
-            <div class="legend-item"><div class="legend-dot" style="background:#d29922"></div><span id="legendNoEmail">No email: 0</span></div>
-            <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div><span id="legendFailed">Failed: 0</span></div>
-          </div>
-        </div>
+      <div class="stat-card green">
+        <div class="num" id="statFound">0</div>
+        <div class="lbl">Emails Found</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="num" id="statNoEmail">0</div>
+        <div class="lbl">No Email Found</div>
+      </div>
+      <div class="stat-card red">
+        <div class="num" id="statFailed">0</div>
+        <div class="lbl">Failed / No Company</div>
       </div>
     </div>
-
-    <!-- Search & Filter -->
-    <div class="search-bar">
-      <input type="text" id="searchInput" placeholder="Search company, email domain..." oninput="filterResults()">
-      <select class="filter-select" id="filterPublisher" onchange="filterResults()">
-        <option value="">All Publishers</option>
-      </select>
-      <select class="filter-select" id="filterStatus" onchange="filterResults()">
-        <option value="">All Statuses</option>
-        <option value="found">✅ Found</option>
-        <option value="no_email">⚠ No Email</option>
-        <option value="no_company">❌ No Company</option>
-      </select>
-    </div>
-
-    <!-- Tabs -->
-    <div>
-      <div class="tabs">
-        <div class="tab active" onclick="switchTab('results')">Results <span id="resultsCount" style="font-size:11px;background:var(--border);padding:1px 6px;border-radius:10px;margin-left:4px">0</span></div>
-        <div class="tab" onclick="switchTab('log')">Live Log</div>
-        <div class="tab" onclick="switchTab('history')">Job History</div>
-      </div>
-
-      <div class="tab-content active" id="tab-results">
-        <div class="table-wrap" id="tableWrap">
-          <div class="empty-state" id="emptyState"><h3>No results yet</h3><p>Select sites and click Start Scraping to begin</p></div>
-          <table id="resultsTable" style="display:none">
-            <thead><tr>
-              <th>Time</th><th>Publisher</th><th>PR Link</th><th>Company Site</th><th>Email</th><th>Score</th><th>Status</th>
-            </tr></thead>
-            <tbody id="tbody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="tab-content" id="tab-log">
-        <div class="log-controls">
-          <span class="log-title">Live Log</span>
-          <button class="btn btn-secondary btn-sm" onclick="clearLog()">Clear</button>
-        </div>
-        <div class="log-container" id="logContainer"></div>
-      </div>
-
-      <div class="tab-content" id="tab-history">
-        <div class="table-wrap">
-          <table class="history-table">
-            <thead><tr><th>ID</th><th>Start</th><th>End</th><th>Sites</th><th>Processed</th><th>Found</th><th>Status</th></tr></thead>
-            <tbody id="historyBody"></tbody>
-          </table>
-        </div>
+    <div class="chart-area">
+      <canvas id="donutChart" width="80" height="80"></canvas>
+      <div class="legend">
+        <div id="legendFound">Found: 0</div>
+        <div id="legendNoEmail">No email: 0</div>
+        <div id="legendFailed">Failed: 0</div>
       </div>
     </div>
   </div>
-</div>
+  <div class="progress-wrap" id="progressWrap">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
+      Currently scraping — <span id="progressPct">0%</span>
+      <span id="runningLabel" style="display:none;color:var(--accent2);margin-left:8px">● Scraping...</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    <div class="progress-label">
+      <span id="progressDetail">0 of 0 PRs processed</span>
+      <span id="currentSite"></span>
+    </div>
+    <div id="dupCount" style="margin-top:4px"></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('results')">Results <span id="resultsCount" style="font-size:10px;color:var(--text-muted)">0</span></div>
+    <div class="tab" onclick="switchTab('emails')">Emails 📧</div>
+    <div class="tab" onclick="switchTab('log')">Live Log</div>
+    <div class="tab" onclick="switchTab('history')">Job History</div>
+  </div>
+
+  <!-- Results Tab -->
+  <div class="tab-content active" id="tab-results">
+    <div class="table-area">
+      <div class="filter-row">
+        <input type="text" id="searchInput" placeholder="Search leads..." oninput="filterResults()">
+        <select id="filterPublisher" onchange="filterResults()"><option value="">All Publishers</option></select>
+        <select id="filterStatus" onchange="filterResults()">
+          <option value="">All Statuses</option>
+          <option value="found">✅ Found</option>
+          <option value="no_email">⚠ No Email</option>
+          <option value="no_company">❌ No Company</option>
+        </select>
+      </div>
+      <div class="empty-state" id="emptyState">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <p>No results yet<br>Select sites and click Start Scraping to begin</p>
+      </div>
+      <table id="resultsTable" style="display:none">
+        <thead><tr>
+          <th>Time</th><th>Publisher</th><th>PR Link</th><th>Company Site</th>
+          <th>Email</th><th>Score</th><th>Status</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Emails Tab -->
+  <div class="tab-content" id="tab-emails">
+    <div class="table-area">
+      <div class="filter-row">
+        <input type="text" id="emailsSearch" placeholder="Search by company, email domain, publisher..." oninput="filterEmails()">
+        <button class="btn btn-secondary btn-sm" onclick="exportEmailsExcel()">⬇ Export Emails Excel</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadEmails()">🔄 Refresh</button>
+        <span id="emailsCount" style="font-size:12px;color:var(--text-muted)"></span>
+      </div>
+      <div class="empty-state" id="emailsEmptyState">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <p>No emails found yet<br>Run a scrape job to collect emails</p>
+      </div>
+      <table id="emailsTable" class="emails-table" style="display:none">
+        <thead><tr>
+          <th>Company</th><th>All Emails Found</th><th>Best Email</th>
+          <th>Score</th><th>Source</th><th>Publisher(s)</th><th>PRs</th><th>Date</th>
+        </tr></thead>
+        <tbody id="emailsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Log Tab -->
+  <div class="tab-content" id="tab-log">
+    <div style="padding:8px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:12px;color:var(--text-muted)">Live Log</span>
+      <button class="btn btn-secondary btn-sm" onclick="clearLog()">Clear</button>
+    </div>
+    <div id="logContainer"></div>
+  </div>
+
+  <!-- History Tab -->
+  <div class="tab-content" id="tab-history">
+    <div class="history-wrap">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Start</th><th>End</th><th>Sites</th><th>Processed</th><th>Found</th><th>Status</th>
+        </tr></thead>
+        <tbody id="historyBody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">No history yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
 <script>
 // State
 let allLeads = [];
 let emailCounts = {};
 let isRunning = false;
-let donutCtx = null;
+let allEmailsData = [];
 
 // Socket.IO
 const socket = io({transports:['websocket','polling']});
-
 socket.on('connect', () => addLog({ts:now(),msg:'Connected to server',level:'success'}));
 socket.on('disconnect', () => addLog({ts:now(),msg:'Disconnected from server',level:'error'}));
 socket.on('log', entry => addLog(entry));
 socket.on('stats', stats => updateStats(stats));
 socket.on('new_lead', lead => { addLead(lead); });
 socket.on('job_started', () => setRunning(true));
-socket.on('job_done', stats => { setRunning(false); updateStats(stats); loadHistory(); });
+socket.on('job_done', stats => { setRunning(false); updateStats(stats); loadHistory(); loadEmails(); });
 socket.on('site_start', d => {
   document.getElementById('currentSite').textContent = d.site;
   document.getElementById('progressWrap').classList.add('visible');
 });
 
-function now() {
-  return new Date().toLocaleTimeString('en-US',{hour12:false});
-}
+function now() { return new Date().toLocaleTimeString('en-US',{hour12:false}); }
 
 // Theme
 function toggleTheme() {
@@ -328,14 +362,19 @@ function toggleTheme() {
 
 // Tabs
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['results','log','history'][i]===name));
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
-  if (name==='history') loadHistory();
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => { t.classList.remove('active'); t.style.display = 'none'; });
+  const tabs = ['results','emails','log','history'];
+  const idx = tabs.indexOf(name);
+  document.querySelectorAll('.tab')[idx]?.classList.add('active');
+  const content = document.getElementById('tab-' + name);
+  if (content) { content.classList.add('active'); content.style.display = 'flex'; }
+  if (name === 'history') loadHistory();
+  if (name === 'emails') loadEmails();
 }
 
 // Sites list
-const SITE_DATA = {{ sites|tojson }};
+const SITE_DATA = {{ sites | tojson }};
 function renderSites() {
   const list = document.getElementById('sitesList');
   list.innerHTML = '';
@@ -347,7 +386,6 @@ function renderSites() {
       ${s.pr_rss?'<span class="rss-badge">RSS</span>':''}`;
     list.appendChild(item);
   });
-  // Add custom sites from DOM data
   fetch('/api/sites').then(r=>r.json()).then(sites => {
     sites.filter(s=>s.custom).forEach(s => {
       const item = document.createElement('div');
@@ -359,15 +397,15 @@ function renderSites() {
     updatePublisherFilter();
   });
 }
+
 function selectAll() { document.querySelectorAll('#sitesList input').forEach(c=>c.checked=true); }
 function selectNone() { document.querySelectorAll('#sitesList input').forEach(c=>c.checked=false); }
-function selectRSS() { 
+function selectRSS() {
   document.querySelectorAll('#sitesList .site-item').forEach(item => {
     const cb = item.querySelector('input');
     cb.checked = !!item.querySelector('.rss-badge');
   });
 }
-
 function getSelectedSites() {
   return Array.from(document.querySelectorAll('#sitesList input:checked')).map(c=>c.value);
 }
@@ -391,14 +429,12 @@ function startJob() {
 }
 
 function stopJob() {
-  fetch('/api/stop',{method:'POST'}).then(()=>{
-    addLog({ts:now(),msg:'Stop requested...',level:'warn'});
-  });
+  fetch('/api/stop',{method:'POST'}).then(()=>{ addLog({ts:now(),msg:'Stop requested...',level:'warn'}); });
 }
 
 function setRunning(running) {
   isRunning = running;
-  document.getElementById('statusDot').className = 'status-dot' + (running?' running':'');
+  document.getElementById('statusDot').className = 'status-dot'+(running?' running':'');
   document.getElementById('runningLabel').style.display = running?'inline':'none';
   document.getElementById('startBtn').disabled = running;
   document.getElementById('stopBtn').style.display = running?'flex':'none';
@@ -413,33 +449,24 @@ function addSite() {
   result.textContent = 'Discovering...';
   fetch('/api/add_site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain})})
     .then(r=>r.json()).then(d => {
-      if (d.ok) {
-        result.style.color='var(--accent2)';
-        result.textContent = 'Found: '+d.pr_path+' ('+d.pagination+')';
-        renderSites();
-      } else {
-        result.style.color='var(--danger)';
-        result.textContent = d.msg;
-      }
+      if (d.ok) { result.style.color='var(--accent2)'; result.textContent='Found: '+d.pr_path+' ('+d.pagination+')'; renderSites(); }
+      else { result.style.color='var(--danger)'; result.textContent=d.msg; }
     });
 }
 
 // Stats & progress
 function updateStats(stats) {
-  const processed = (stats.processed||0) + (stats.no_email||0);
   document.getElementById('statTotal').textContent = stats.processed||0;
   document.getElementById('statFound').textContent = stats.found||0;
   document.getElementById('statNoEmail').textContent = stats.no_email||0;
   document.getElementById('statFailed').textContent = stats.failed||0;
   if (stats.current_site) document.getElementById('currentSite').textContent = stats.current_site;
-  // Progress
   const total = stats.total_urls||0;
   const done = (stats.processed||0)+(stats.no_email||0)+(stats.failed||0);
   const pct = total > 0 ? Math.round(done/total*100) : 0;
   document.getElementById('progressFill').style.width = pct+'%';
   document.getElementById('progressPct').textContent = pct+'%';
   document.getElementById('progressDetail').textContent = done+' of '+total+' PRs processed';
-  // Chart
   drawDonut(stats.found||0, stats.no_email||0, stats.failed||0);
   document.getElementById('legendFound').textContent = 'Found: '+(stats.found||0);
   document.getElementById('legendNoEmail').textContent = 'No email: '+(stats.no_email||0);
@@ -462,20 +489,17 @@ function drawDonut(found, noEmail, failed) {
     if (s.v === 0) return;
     const angle = (s.v/total)*Math.PI*2;
     ctx.beginPath(); ctx.arc(40,40,30,start,start+angle);
-    ctx.strokeStyle = s.c; ctx.lineWidth = 10; ctx.stroke();
-    start += angle;
+    ctx.strokeStyle = s.c; ctx.lineWidth = 10; ctx.stroke(); start += angle;
   });
 }
-
+</script><script>
 // Results table
 function addLead(lead) {
   allLeads.unshift(lead);
-  // Track duplicates
   if (lead.email) emailCounts[lead.email] = (emailCounts[lead.email]||0)+1;
   renderTable();
   updateResultsCount();
   updatePublisherFilter();
-  // Check for global dups
   const dups = Object.values(emailCounts).filter(c=>c>1).length;
   document.getElementById('dupCount').textContent = dups > 0 ? dups+' duplicate email'+(dups>1?'s':'')+' detected' : '';
 }
@@ -492,38 +516,77 @@ function scoreDots(score) {
   return `<div class="score-bar"><div class="score-dots">${dots}</div></div>`;
 }
 
+function copyEmail(email, tickId) {
+  navigator.clipboard.writeText(email).then(() => {
+    const tick = document.getElementById(tickId);
+    if (tick) { tick.classList.add('show'); setTimeout(() => tick.classList.remove('show'), 2000); }
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = email; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    const tick = document.getElementById(tickId);
+    if (tick) { tick.classList.add('show'); setTimeout(() => tick.classList.remove('show'), 2000); }
+  });
+}
+
+function retryEmail(leadId, rowEl) {
+  const btn = rowEl.querySelector('.try-again-btn');
+  if (btn) btn.textContent = '...';
+  fetch('/api/retry_email/' + leadId, {method:'POST'})
+    .then(r=>r.json()).then(d => {
+      if (d.ok) {
+        // Update the lead in allLeads
+        const lead = allLeads.find(l => l.id == leadId);
+        if (lead) { lead.email = d.email; lead.status = 'found'; lead.score = d.score; lead.email_src = d.email_src; }
+        renderTable();
+        addLog({ts:now(),msg:'Retry found: '+d.email+' (score:'+d.score+')',level:'success'});
+      } else {
+        if (btn) btn.textContent = 'Try Again';
+        addLog({ts:now(),msg:'Retry: no email found',level:'warn'});
+      }
+    }).catch(() => { if (btn) btn.textContent = 'Try Again'; });
+}
+
+function emailCellHtml(lead, idx) {
+  if (!lead.email) {
+    return `<button class="try-again-btn" onclick="retryEmail(${lead.id||0}, this.closest('tr'))">Try Again</button>`;
+  }
+  const tickId = 'tick_' + idx;
+  const srcIcon = lead.email_src && lead.email_src === 'PR Body' ? '📰' : '🌐';
+  const isDup = (emailCounts[lead.email]||0) > 1;
+  return `<span class="email-clickable" onclick="copyEmail('${lead.email}', '${tickId}')" title="Click to copy">${lead.email}</span>
+    <span class="src-icon" title="Source: ${lead.email_src||'unknown'}">${srcIcon}</span>
+    <span class="copy-tick" id="${tickId}">✓</span>
+    ${isDup?'<span class="dup-badge">DUP</span>':''}`;
+}
+
 function renderTable() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const pubFilter = document.getElementById('filterPublisher').value;
   const statusFilter = document.getElementById('filterStatus').value;
-  
   let filtered = allLeads.filter(l => {
     if (pubFilter && l.publisher !== pubFilter) return false;
     if (statusFilter && l.status !== statusFilter) return false;
     if (search && !JSON.stringify(l).toLowerCase().includes(search)) return false;
     return true;
   });
-
   const tbody = document.getElementById('tbody');
   const table = document.getElementById('resultsTable');
   const empty = document.getElementById('emptyState');
-  
   if (filtered.length === 0 && allLeads.length === 0) {
     table.style.display = 'none'; empty.style.display = 'block'; return;
   }
   table.style.display = 'table'; empty.style.display = 'none';
-  
-  tbody.innerHTML = filtered.slice(0,200).map(l => {
-    const isDup = l.email && (emailCounts[l.email]||0) > 1;
-    const emailCell = l.email ? `<a href="mailto:${l.email}">${l.email}</a>${isDup?'<span class="dup-badge">DUP</span>':''}` : '—';
+  tbody.innerHTML = filtered.slice(0,200).map((l, idx) => {
     const prLink = l.pr_url ? `<a href="${l.pr_url}" target="_blank" title="${l.pr_url}">View PR</a>` : '—';
-    const compLink = l.company_url ? `<a href="${l.company_url}" target="_blank" title="${l.company_url}">${new URL(l.company_url).hostname.replace('www.','')}</a>` : '—';
+    let compLink = '—';
+    try { compLink = l.company_url ? `<a href="${l.company_url}" target="_blank">${new URL(l.company_url).hostname.replace('www.','')}</a>` : '—'; } catch(e){}
     return `<tr>
       <td style="color:var(--text-muted)">${l.ts}</td>
       <td><strong>${l.publisher}</strong></td>
       <td>${prLink}</td>
       <td>${compLink}</td>
-      <td>${emailCell}</td>
+      <td>${emailCellHtml(l, idx)}</td>
       <td>${scoreDots(l.score||0)}</td>
       <td>${statusPill(l.status)}</td>
     </tr>`;
@@ -540,14 +603,103 @@ function updatePublisherFilter() {
     if (l.publisher && !existing.has(l.publisher)) {
       const opt = document.createElement('option');
       opt.value = opt.textContent = l.publisher;
-      sel.appendChild(opt);
-      existing.add(l.publisher);
+      sel.appendChild(opt); existing.add(l.publisher);
     }
   });
 }
 
-function updateResultsCount() {
-  document.getElementById('resultsCount').textContent = allLeads.length;
+function updateResultsCount() { document.getElementById('resultsCount').textContent = allLeads.length; }
+</script><script>
+// Emails tab
+function loadEmails() {
+  const search = document.getElementById('emailsSearch')?.value || '';
+  fetch('/api/emails' + (search ? '?search=' + encodeURIComponent(search) : ''))
+    .then(r=>r.json()).then(data => {
+      allEmailsData = data;
+      renderEmailsTable(data);
+    }).catch(e => console.error('Emails error:', e));
+}
+
+function filterEmails() {
+  const search = document.getElementById('emailsSearch').value.toLowerCase();
+  if (search) {
+    loadEmails();
+  } else {
+    renderEmailsTable(allEmailsData);
+  }
+}
+
+function renderEmailsTable(data) {
+  const table = document.getElementById('emailsTable');
+  const empty = document.getElementById('emailsEmptyState');
+  const countEl = document.getElementById('emailsCount');
+  
+  if (!data || data.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = 'block';
+    if (countEl) countEl.textContent = '0 companies';
+    return;
+  }
+  
+  table.style.display = 'table';
+  empty.style.display = 'none';
+  if (countEl) countEl.textContent = data.length + ' companies';
+  
+  const tbody = document.getElementById('emailsTbody');
+  tbody.innerHTML = data.map((row, rowIdx) => {
+    const star = row.hot_lead ? '<span class="hot-badge" title="Active PR buyer — 3+ PRs">★</span>' : '';
+    const compLink = row.company_url ? `<a href="${row.company_url}" target="_blank">${row.company_domain}</a>` : row.company_domain;
+    
+    // All emails as clickable items
+    const allEmailsHtml = (row.all_emails || []).map((em, emIdx) => {
+      const tickId = 'etick_' + rowIdx + '_' + emIdx;
+      const score = em[1] || 0;
+      const src = em[2] || '';
+      const srcClass = src === 'PR Body' ? 'pr-body' : 'website';
+      return `<span class="email-clickable" onclick="copyEmail('${em[0]}', '${tickId}')" title="Click to copy (score:${score}, src:${src})">${em[0]}</span>
+        <span class="email-src-badge ${srcClass}">${src === 'PR Body' ? '📰 PR' : '🌐 Web'}</span>
+        <span class="copy-tick" id="${tickId}">✓</span>`;
+    }).join('<br>') || '—';
+    
+    // Best email
+    const bestTickId = 'best_' + rowIdx;
+    const bestEmailHtml = row.best_email 
+      ? `<span class="best-email-cell email-clickable" onclick="copyEmail('${row.best_email}', '${bestTickId}')" title="Click to copy">${row.best_email}</span>
+         <span class="copy-tick" id="${bestTickId}">✓</span>`
+      : '—';
+    
+    // Source badge
+    const srcClass = row.best_src === 'PR Body' ? 'pr-body' : 'website';
+    const srcBadge = row.best_src ? `<span class="email-src-badge ${srcClass}">${row.best_src}</span>` : '—';
+    
+    // Publishers
+    const pubs = (row.publishers || []).join(', ');
+    
+    // PRs
+    const prLinks = (row.prs || []).slice(0, 3).map(pr => 
+      `<a href="${pr.pr_url}" target="_blank">${pr.publisher}</a>`
+    ).join(', ');
+    const prCount = row.pr_count || 0;
+    const prCell = prLinks + (prCount > 3 ? ` +${prCount - 3} more` : '');
+    
+    // Date from first PR
+    const date = row.prs?.[0]?.date || '';
+    
+    return `<tr>
+      <td>${star}${compLink}</td>
+      <td style="max-width:200px;white-space:normal;word-break:break-all">${allEmailsHtml}</td>
+      <td>${bestEmailHtml}</td>
+      <td>${row.best_score || 0}</td>
+      <td>${srcBadge}</td>
+      <td style="max-width:150px;white-space:normal">${pubs}</td>
+      <td style="max-width:200px;white-space:normal">${prCell}</td>
+      <td style="color:var(--text-muted)">${date}</td>
+    </tr>`;
+  }).join('');
+}
+
+function exportEmailsExcel() {
+  window.location.href = '/api/export_emails';
 }
 
 // Log
@@ -557,7 +709,7 @@ function addLog(entry) {
   line.className = 'log-line ' + (entry.level||'info');
   line.innerHTML = `<span class="log-ts">${entry.ts}</span><span class="log-msg">${entry.msg}</span>`;
   container.appendChild(line);
-  if (container.children.length > 1000) container.removeChild(container.firstChild);
+  if (container.children.length > 2000) container.removeChild(container.firstChild);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -570,10 +722,13 @@ function exportCSV() { window.location.href = '/api/export_csv'; }
 function clearData() {
   if (!confirm('Clear all leads and seen URLs?')) return;
   fetch('/api/clear',{method:'POST'}).then(() => {
-    allLeads = []; emailCounts = {};
+    allLeads = []; emailCounts = []; allEmailsData = [];
     document.getElementById('tbody').innerHTML = '';
     document.getElementById('emptyState').style.display = 'block';
     document.getElementById('resultsTable').style.display = 'none';
+    document.getElementById('emailsTbody').innerHTML = '';
+    document.getElementById('emailsEmptyState').style.display = 'block';
+    document.getElementById('emailsTable').style.display = 'none';
     updateResultsCount();
     updateStats({processed:0,found:0,no_email:0,failed:0,total_urls:0});
     addLog({ts:now(),msg:'All data cleared',level:'warn'});
@@ -584,7 +739,10 @@ function clearData() {
 function loadHistory() {
   fetch('/api/history').then(r=>r.json()).then(rows => {
     const tbody = document.getElementById('historyBody');
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">No history yet</td></tr>'; return; }
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">No history yet</td></tr>';
+      return;
+    }
     tbody.innerHTML = rows.map(r => `<tr>
       <td>#${r.id}</td>
       <td style="color:var(--text-muted)">${(r.start_time||'').substring(0,19).replace('T',' ')}</td>
@@ -614,35 +772,27 @@ setInterval(() => {
 
 // Init
 window.addEventListener('load', () => {
-  // Set today's date
   document.getElementById('dateTo').value = new Date().toISOString().split('T')[0];
-  
   renderSites();
-  
-  // Load existing logs
   fetch('/api/logs').then(r=>r.json()).then(logs => logs.forEach(addLog));
-  
-  // Load existing leads
   fetch('/api/leads').then(r=>r.json()).then(leads => {
     leads.forEach(l => {
       allLeads.push({
+        id: l.id,
         ts: (l.ts||'').substring(11,19),
-        publisher: l.publisher, pr_url: l.pr_url, company_url: l.company_url,
-        email: l.email, status: l.status, score: l.email_score||0
+        publisher: l.publisher, pr_url: l.pr_url,
+        company_url: l.company_url, email: l.email,
+        status: l.status, score: l.email_score||0,
+        email_src: l.email_src||''
       });
       if (l.email) emailCounts[l.email] = (emailCounts[l.email]||0)+1;
     });
-    renderTable();
-    updateResultsCount();
-    updatePublisherFilter();
+    renderTable(); updateResultsCount(); updatePublisherFilter();
   });
-  
-  // Check current status
   fetch('/api/status').then(r=>r.json()).then(d => {
     if (d.running) setRunning(true);
     updateStats(d.stats||{});
   });
-  
   fetch('/api/stats').then(r=>r.json()).then(d => {
     document.getElementById('statTotal').textContent = d.total||0;
     document.getElementById('statFound').textContent = d.found||0;
@@ -650,7 +800,11 @@ window.addEventListener('load', () => {
     document.getElementById('statFailed').textContent = d.failed||0;
     drawDonut(d.found||0, d.no_email||0, d.failed||0);
   });
+  // Fix tab display
+  document.querySelectorAll('.tab-content').forEach((t, i) => {
+    t.style.display = i === 0 ? 'flex' : 'none';
+  });
 });
 </script>
 </body>
-</html>
+               </html>
