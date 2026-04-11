@@ -14,7 +14,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "pr-scraper-2026"h
+app.config["SECRET_KEY"] = "pr-scraper-2026"
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet", logger=False, engineio_logger=False)
 
 DB_FILE = "data.db"
