@@ -1,7 +1,7 @@
 import eventlet
 eventlet.monkey_patch()
 
-import re, time, sqlite3, random, threading, os, json, csv, io
+import re, time, sqlite3, random, threading, os, json, csv, io, html as html_module
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,20 +32,22 @@ EMAIL_RE = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
 PRIORITY_PREFIXES = ["press","media","pr","news","editorial","communications"]
 GOOD_PREFIXES = ["contact","hello","info","marketing","partnerships","team","enquiries"]
 JUNK_PATTERNS = ["noreply","no-reply","donotreply","do-not-reply","bounce","mailer-daemon",
-                 "postmaster","webmaster","notifications","alerts","newsletter","unsubscribe",
-                 "example","test","placeholder","spam","abuse"]
+    "postmaster","webmaster","notifications","alerts","newsletter","unsubscribe",
+    "example","test","placeholder","spam","abuse"]
 EXCLUDED_LINK_DOMAINS = {
     "twitter.com","x.com","facebook.com","linkedin.com","instagram.com","t.me","telegram.me",
     "youtube.com","discord.com","discord.gg","reddit.com","github.com","google.com","apple.com",
     "medium.com","t.co","bit.ly","tiktok.com","coinmarketcap.com","coingecko.com",
 }
-EMAIL_SUBPAGES = ["/contact","/contact-us","/about","/about-us","/team","/press","/media","/press-contact"]
+EMAIL_SUBPAGES = [
+    "/contact","/contact-us","/about","/about-us","/team","/press","/media",
+    "/privacy","/terms","/terms-of-service","/press-contact"
+]
 PR_PATH_CANDIDATES = [
     "/press-releases/","/press-release/","/category/press-releases/","/category/press-release/",
     "/news/press-releases/","/sponsored/","/wire/","/pr/","/tag/press-release/","/tag/press-releases/",
     "/latest-news/press-releases/","/blog/category/press-release/",
 ]
-
 SITE_CONFIG = [
     {"site":"BeInCrypto","domain":"https://beincrypto.com","pr_path":"/category/press-releases/","pr_rss":"https://beincrypto.com/category/press-releases/feed/","pagination":"wordpress","needs_playwright":False},
     {"site":"AMBCrypto","domain":"https://ambcrypto.com","pr_path":"/category/press-release/","pr_rss":"https://ambcrypto.com/category/press-release/feed/","pagination":"wordpress","needs_playwright":False},
@@ -92,8 +94,10 @@ job_running = False
 job_stop_flag = False
 job_stats = {"processed":0,"found":0,"no_email":0,"failed":0,"total_urls":0,"current_site":""}
 log_buffer = []
-company_domain_cache = {}  # cache: company_domain -> email
+company_domain_cache = {}
 job_history = []
+# Counters for email source tracking
+email_source_stats = {"pr_body": 0, "company_site": 0}
 
 def now_str():
     return datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -105,7 +109,14 @@ def get_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT, publisher TEXT, pr_url TEXT UNIQUE,
         company_url TEXT, email TEXT, email_score INTEGER DEFAULT 0,
-        email_src TEXT, status TEXT, date_published TEXT)""")
+        email_src TEXT, status TEXT, date_published TEXT,
+        all_emails TEXT DEFAULT '[]')""")
+    # Add all_emails column if missing (for existing DBs)
+    try:
+        conn.execute("ALTER TABLE leads ADD COLUMN all_emails TEXT DEFAULT '[]'")
+        conn.commit()
+    except Exception:
+        pass
     conn.execute("""CREATE TABLE IF NOT EXISTS seen_urls(
         url TEXT PRIMARY KEY, site TEXT, failed_count INTEGER DEFAULT 0, seen_at TEXT)""")
     conn.execute("""CREATE TABLE IF NOT EXISTS custom_sites(
@@ -129,7 +140,7 @@ def emit_stats():
     socketio.emit("stats", job_stats)
 
 def score_email(email, company_domain=None):
-    """Score an email 0-100 based on quality. Higher = better press contact."""
+    """Score an email 0-100 based on quality."""
     if not email:
         return 0
     email_lower = email.lower()
@@ -137,32 +148,48 @@ def score_email(email, company_domain=None):
     # Instant disqualify
     if any(j in local for j in JUNK_PATTERNS):
         return 0
-    if any(char.isdigit() for char in local) and len(re.findall(r'\d', local)) > 3:
+    if re.search(r'\d{6,}', local):
         return 0  # ID-like numbers
-    # Domain match bonus
+    # Discard noreply / donotreply
+    if local in ['noreply','no-reply','donotreply','do-not-reply']:
+        return 0
+    # Domain match
     domain_match = False
+    comp_netloc = ''
     if company_domain:
-        comp_netloc = urlparse(company_domain).netloc.lower().replace("www.","")
+        try:
+            comp_netloc = urlparse(company_domain).netloc.lower().replace("www.","")
+        except Exception:
+            pass
         if comp_netloc and comp_netloc in domain:
             domain_match = True
     # Score
     score = 0
+    personal_domains = ["gmail.com","yahoo.com","hotmail.com","outlook.com","aol.com","icloud.com","protonmail.com","yandex.com"]
     if domain_match:
         score += 40
-    else:
-        if domain in ["gmail.com","yahoo.com","hotmail.com","outlook.com","aol.com","icloud.com"]:
-            score += 0  # personal email
+        # Prefix bonuses for company domain
+        for p in ["press","media","pr"]:
+            if local.startswith(p):
+                score += 60
+                break
         else:
-            score += 20  # some other domain
-    # Prefix bonuses
-    for p in PRIORITY_PREFIXES:
-        if local.startswith(p):
-            score += 40
-            break
-    for p in GOOD_PREFIXES:
-        if local.startswith(p):
+            for p in ["contact","hello","info","marketing","partnerships","team","communications","news","editorial"]:
+                if local.startswith(p):
+                    score += 40
+                    break
+            else:
+                score += 20
+    elif domain in personal_domains:
+        score += 20  # personal email — lower but keep
+    else:
+        # Different org domain
+        for p in ["press","media","pr"]:
+            if local.startswith(p):
+                score += 40
+                break
+        else:
             score += 20
-            break
     # Penalise long numeric suffixes
     if re.search(r'\d{4,}', local):
         score -= 10
@@ -202,7 +229,7 @@ def fetch(url, verify=True, retries=3):
 def is_seen(conn, url):
     row = conn.execute("SELECT failed_count FROM seen_urls WHERE url=?", (url,)).fetchone()
     if row and row[0] >= 3:
-        return True  # permanently failed
+        return True
     return row is not None and row[0] < 3 and conn.execute("SELECT 1 FROM leads WHERE pr_url=?", (url,)).fetchone() is not None
 
 def mark_seen(conn, url, site, failed=False):
@@ -293,7 +320,7 @@ def get_pr_urls_paginated(config, max_pages, date_from, date_to, conn):
                 if not existing or existing[0] < 3:
                     collected.append((href,""))
                     found += 1
-        log(f"    -> {found} new PR URLs on page {page_num}")
+        log(f"  -> {found} new PR URLs on page {page_num}")
         if found == 0:
             break
     return collected
@@ -318,16 +345,13 @@ def find_company_url(pr_html, pr_url, pub_domain):
             continue
         if not href.startswith("http"):
             continue
-        # Weight links in bottom 35% of article (About section)
         position_score = 2 if i > total * 0.65 else 1
-        # Prefer links with "about" or company-ish text
         link_text = a.get_text(strip=True).lower()
         if any(kw in link_text for kw in ["about","company","official","website","visit"]):
             position_score += 1
         candidates.append((href, position_score, domain))
     if not candidates:
         return None
-    # Deduplicate by domain, keep highest score
     domain_best = {}
     for href, score, dom in candidates:
         if dom not in domain_best or domain_best[dom][1] < score:
@@ -335,65 +359,249 @@ def find_company_url(pr_html, pr_url, pub_domain):
     sorted_cands = sorted(domain_best.values(), key=lambda x: -x[1])
     return sorted_cands[0][0]
 
-def extract_emails_scored(html, company_url=None):
-    """Extract all emails with scores, return sorted best-first."""
+def extract_emails_from_html(html, company_url=None, label="page"):
+    """Extract all scored emails from HTML including obfuscated ones."""
     if not html:
         return []
     s = BeautifulSoup(html, "lxml")
+
+    # 1. mailto: href links (often hidden in source)
+    mailto_emails = []
+    for a in s.find_all("a", href=True):
+        href = a.get("href","")
+        if href.lower().startswith("mailto:"):
+            em = href.replace("mailto:","").split("?")[0].strip().lower()
+            if em:
+                mailto_emails.append(em)
+
+    # 2. data-email attributes
+    data_emails = []
+    for el in s.find_all(attrs={"data-email": True}):
+        em = el.get("data-email","").strip().lower()
+        if em:
+            data_emails.append(em)
+
+    # 3. HTML comments
+    comment_emails = []
+    raw_html_lower = html.lower()
+    for comment in re.findall(r'<!--.*?-->', html, re.DOTALL):
+        found = EMAIL_RE.findall(comment)
+        comment_emails.extend(found)
+
+    # 4. HTML entity encoded emails (&#x40; = @, &#64; = @)
+    decoded_html = html_module.unescape(html)
+    entity_emails = EMAIL_RE.findall(decoded_html)
+
+    # 5. Plain text extraction (remove script/style first)
     for tag in s(["script","style","noscript"]):
         tag.decompose()
     text = s.get_text(" ", strip=True)
-    # Also check mailto: links
-    mailto_emails = [a["href"].replace("mailto:","").split("?")[0].strip()
-                     for a in s.find_all("a", href=True)
-                     if a["href"].lower().startswith("mailto:")]
-    raw_emails = EMAIL_RE.findall(text)
-    all_emails = list(set(raw_emails + mailto_emails))
+    text_emails = EMAIL_RE.findall(text)
+
+    # 6. Try reconstructing split emails (spans with @ split)
+    # Look for patterns like user @ domain.com in text
+    split_pattern = re.compile(r'([a-zA-Z0-9._%+-]+)\s*@\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})')
+    split_emails = [m[0] + '@' + m[1] for m in split_pattern.findall(text)]
+
+    all_raw = set(mailto_emails + data_emails + comment_emails + entity_emails + text_emails + split_emails)
+
     scored = []
-    for e in all_emails:
-        if any(j in e.lower() for j in ["example","test","placeholder","yourdomain",".png",".jpg",".gif",".svg"]):
+    for e in all_raw:
+        e = e.strip().lower()
+        if not e or not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', e):
+            continue
+        if any(j in e.lower() for j in ["example","test","placeholder","yourdomain",".png",".jpg",".gif",".svg",".webp"]):
             continue
         sc = score_email(e, company_url)
         if sc > 0:
             scored.append((e, sc))
+
     scored.sort(key=lambda x: -x[1])
     return scored
 
-def find_email(company_url):
+
+def extract_emails_from_pr_body(pr_html, pr_url):
+    """
+    Step 1: Check PR body for contact emails.
+    Returns list of (email, score) sorted best-first.
+    """
+    if not pr_html:
+        return []
+    s = BeautifulSoup(pr_html, "lxml")
+    # Focus on article / main content
+    body = s.find("article") or s.find("main") or s.find("body")
+    if not body:
+        return []
+
+    # Extract text from bottom 40% of article (where contact info usually is)
+    all_tags = list(body.find_all(True))
+    total_tags = len(all_tags)
+    bottom_section_tags = all_tags[int(total_tags * 0.5):]  # bottom 50%
+    bottom_text = " ".join(t.get_text(" ", strip=True) for t in bottom_section_tags)
+
+    # Also get full text for context
+    full_text = body.get_text(" ", strip=True)
+
+    # Look for emails in full text
+    all_emails_found = EMAIL_RE.findall(full_text)
+    # Also check mailto links
+    for a in body.find_all("a", href=True):
+        href = a.get("href","")
+        if href.lower().startswith("mailto:"):
+            em = href.replace("mailto:","").split("?")[0].strip()
+            if em:
+                all_emails_found.append(em)
+
+    if not all_emails_found:
+        return []
+
+    scored = []
+    for e in set(all_emails_found):
+        e = e.strip().lower()
+        if not e:
+            continue
+        if any(j in e for j in ["example","test","placeholder","yourdomain",".png",".jpg",".gif",".svg"]):
+            continue
+        # Score with extra weight if found near contact keywords
+        sc = score_email(e, None)
+        # Boost if email appears near contact keywords in full text
+        email_idx = full_text.lower().find(e)
+        if email_idx > -1:
+            context = full_text[max(0, email_idx-100):email_idx+100].lower()
+            if any(kw in context for kw in ["contact","media","press","reach","info","hello","inquir","pr "]):
+                sc = min(100, sc + 15)
+        if sc > 0:
+            scored.append((e, sc))
+
+    scored.sort(key=lambda x: -x[1])
+    return scored
+
+
+def find_email_smart(company_url, pr_html=None, pr_url=None):
+    """
+    Smart 5-step email extraction:
+    Step 1: Check PR body
+    Step 2: Check company homepage
+    Step 3: Check sub-pages
+    Step 4: Handle obfuscation
+    Step 5: Score and rank
+    Returns: (best_email, source_label, score, all_emails_list)
+    """
+    global email_source_stats
+    all_found = {}  # email -> (score, source_label)
+
+    # STEP 1: Check PR body first
+    log("  → Checking PR body for email...", "info")
+    pr_emails = extract_emails_from_pr_body(pr_html, pr_url) if pr_html else []
+    if pr_emails:
+        best_pr_email, best_pr_score = pr_emails[0]
+        log(f"  → Found in PR body: {best_pr_email} (score: {best_pr_score}) ✓ Using this", "success")
+        for e, sc in pr_emails:
+            all_found[e] = (sc, "PR Body")
+        # If we found a good email in the PR body, use it immediately
+        if best_pr_score >= 60:
+            all_emails_list = [[e, sc, src] for e, (sc, src) in sorted(all_found.items(), key=lambda x: -x[1][0])]
+            email_source_stats["pr_body"] = email_source_stats.get("pr_body", 0) + 1
+            return best_pr_email, "PR Body", best_pr_score, all_emails_list
+    else:
+        log("  → No email in PR body", "info")
+
+    # STEP 2+3: Visit company website
     if not company_url:
-        return None, None, 0
+        all_emails_list = [[e, sc, src] for e, (sc, src) in sorted(all_found.items(), key=lambda x: -x[1][0])]
+        best = max(all_found.items(), key=lambda x: x[1][0]) if all_found else None
+        if best:
+            return best[0], best[1][1], best[1][0], all_emails_list
+        return None, None, 0, []
+
     parsed = urlparse(company_url)
     base = f"{parsed.scheme}://{parsed.netloc}"
     comp_domain = parsed.netloc.lower()
-    # Check cache first
+
+    # Check cache
     if comp_domain in company_domain_cache:
         cached = company_domain_cache[comp_domain]
-        return cached[0], cached[1], cached[2]
-    best_email = None
-    best_score = 0
-    best_src = None
-    pages_to_check = [company_url] + [base + p for p in EMAIL_SUBPAGES]
-    for url in pages_to_check:
+        return cached[0], cached[1], cached[2], cached[3]
+
+    # Homepage first
+    log(f"  → No email in PR body", "info") if not pr_emails else None
+    log(f"  → Visiting company site: {comp_domain}", "info")
+    log(f"  → Checking homepage...", "info")
+    hp_html = fetch(company_url)
+    if hp_html:
+        hp_emails = extract_emails_from_html(hp_html, company_url, "Homepage")
+        for e, sc in hp_emails:
+            if e not in all_found or all_found[e][0] < sc:
+                all_found[e] = (sc, "Homepage")
+        if hp_emails:
+            log(f"  → Homepage: found {hp_emails[0][0]} (score: {hp_emails[0][1]})", "info")
+        else:
+            log(f"  → Homepage: no email found", "info")
+
+    # STEP 3: Sub-pages
+    pages_to_check = [
+        ("/contact", "Contact page"),
+        ("/contact-us", "Contact-Us page"),
+        ("/about", "About page"),
+        ("/about-us", "About-Us page"),
+        ("/team", "Team page"),
+        ("/press", "Press page"),
+        ("/media", "Media page"),
+        ("/privacy", "Privacy page"),
+        ("/terms", "Terms page"),
+        ("/terms-of-service", "Terms-of-Service page"),
+    ]
+
+    # Check current best score
+    current_best_score = max((sc for sc, _ in all_found.values()), default=0)
+
+    for path, page_label in pages_to_check:
         if job_stop_flag:
             break
-        html = fetch(url)
-        if not html:
+        if current_best_score >= 90:  # Already have excellent email
+            break
+        sub_url = base + path
+        log(f"  → Checking {path}...", "info")
+        sub_html = fetch(sub_url)
+        if not sub_html:
             continue
-        scored = extract_emails_scored(html, company_url)
-        if scored:
-            email, sc = scored[0]
-            if sc > best_score:
-                best_email = email
-                best_score = sc
-                best_src = url
-            if best_score >= 80:  # Great email found, stop searching
+        sub_emails = extract_emails_from_html(sub_html, company_url, page_label)
+        if sub_emails:
+            for e, sc in sub_emails:
+                if e not in all_found or all_found[e][0] < sc:
+                    all_found[e] = (sc, page_label)
+                    log(f"  → {path}: found {e} (score: {sc})", "info")
+            new_best = max((sc for sc, _ in all_found.values()), default=0)
+            if new_best > current_best_score:
+                log(f"  → Better email found at {path}!", "info")
+                current_best_score = new_best
+            if current_best_score >= 90:
+                log(f"  → Excellent email found, stopping search", "success")
                 break
-    company_domain_cache[comp_domain] = (best_email, best_src, best_score)
-    return best_email, best_src, best_score
+
+    # STEP 5: Score and pick best
+    if not all_found:
+        company_domain_cache[comp_domain] = (None, None, 0, [])
+        return None, None, 0, []
+
+    # Sort by score descending, discard noreply/donotreply
+    clean_found = {e: v for e, v in all_found.items() if v[0] > 0}
+    if not clean_found:
+        return None, None, 0, []
+
+    sorted_emails = sorted(clean_found.items(), key=lambda x: -x[1][0])
+    best_email, (best_score, best_src) = sorted_emails[0]
+
+    all_emails_list = [[e, sc, src] for e, (sc, src) in sorted_emails]
+
+    log(f"  → Best email: {best_email} from {best_src} (score: {best_score})", "success")
+    email_source_stats["company_site"] = email_source_stats.get("company_site", 0) + 1
+
+    company_domain_cache[comp_domain] = (best_email, best_src, best_score, all_emails_list)
+    return best_email, best_src, best_score, all_emails_list
 
 def process_pr(pr_url, site_name, pub_domain, date_pub, conn):
     global job_stats
-    # Check if permanently failed (3+ times)
     row = conn.execute("SELECT failed_count FROM seen_urls WHERE url=?", (pr_url,)).fetchone()
     if row and row[0] >= 3:
         log(f"  Skipping permanently failed: {pr_url[:60]}", "warn")
@@ -410,39 +618,47 @@ def process_pr(pr_url, site_name, pub_domain, date_pub, conn):
     company_url = find_company_url(html, pr_url, pub_domain)
     if not company_url:
         mark_seen(conn, pr_url, site_name, failed=False)
-        conn.execute("INSERT OR IGNORE INTO leads(ts,publisher,pr_url,company_url,email,email_score,email_src,status,date_published) VALUES(?,?,?,?,?,?,?,?,?)",
-                     (datetime.now(timezone.utc).isoformat(),site_name,pr_url,"","",0,"","no_company",date_pub))
+        conn.execute("INSERT OR IGNORE INTO leads(ts,publisher,pr_url,company_url,email,email_score,email_src,status,date_published,all_emails) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                     (datetime.now(timezone.utc).isoformat(),site_name,pr_url,"","",0,"","no_company",date_pub,"[]"))
         conn.commit()
         job_stats["failed"] += 1
         emit_stats()
         socketio.emit("new_lead",{"ts":now_str(),"publisher":site_name,"pr_url":pr_url,
-                                  "company_url":"","email":"","status":"no_company","score":0})
+                                  "company_url":"","email":"","status":"no_company","score":0,"all_emails":[],"email_src":""})
         return
-    log(f"    Company: {company_url[:60]}", "success")
-    email, email_src, score = find_email(company_url)
+
+    log(f"  Company: {company_url[:60]}", "success")
+
+    email, email_src, score, all_emails_list = find_email_smart(company_url, pr_html=html, pr_url=pr_url)
+
     if email:
         status = "found"
-        log(f"    Email: {email} (score:{score})", "success")
+        log(f"  ✓ Email: {email} (score:{score}) from {email_src}", "success")
         job_stats["found"] += 1
     else:
         status = "no_email"
-        log(f"    No email found", "warn")
+        log(f"  No email found", "warn")
         job_stats["no_email"] += 1
+
     job_stats["processed"] += 1
     mark_seen(conn, pr_url, site_name, failed=False)
-    conn.execute("INSERT OR IGNORE INTO leads(ts,publisher,pr_url,company_url,email,email_score,email_src,status,date_published) VALUES(?,?,?,?,?,?,?,?,?)",
+    all_emails_json = json.dumps(all_emails_list)
+    conn.execute("INSERT OR IGNORE INTO leads(ts,publisher,pr_url,company_url,email,email_score,email_src,status,date_published,all_emails) VALUES(?,?,?,?,?,?,?,?,?,?)",
                  (datetime.now(timezone.utc).isoformat(),site_name,pr_url,company_url,
-                  email or "",score,email_src or "",status,date_pub))
+                  email or "",score,email_src or "",status,date_pub,all_emails_json))
     conn.commit()
     emit_stats()
     socketio.emit("new_lead",{"ts":now_str(),"publisher":site_name,"pr_url":pr_url,
-                              "company_url":company_url,"email":email or "","status":status,"score":score})
+                              "company_url":company_url,"email":email or "","status":status,
+                              "score":score,"all_emails":all_emails_list,"email_src":email_src or ""})
+
 
 def run_job(sites, date_from_str, date_to_str, max_pages):
-    global job_running, job_stop_flag, job_stats, company_domain_cache
+    global job_running, job_stop_flag, job_stats, company_domain_cache, email_source_stats
     job_running = True
     job_stop_flag = False
     company_domain_cache = {}
+    email_source_stats = {"pr_body": 0, "company_site": 0}
     job_stats = {"processed":0,"found":0,"no_email":0,"failed":0,"total_urls":0,"current_site":""}
     date_from = datetime.strptime(date_from_str, "%Y-%m-%d").date() if date_from_str else None
     date_to = datetime.strptime(date_to_str, "%Y-%m-%d").date() if date_to_str else None
@@ -486,6 +702,7 @@ def run_job(sites, date_from_str, date_to_str, max_pages):
     conn.execute("UPDATE job_runs SET end_time=?,total_prs=?,emails_found=?,status=? WHERE id=?",
                  (end_time, job_stats["processed"], job_stats["found"], final_status, run_id))
     conn.commit()
+    log(f"Email sources — PR body: {email_source_stats['pr_body']} | Company site: {email_source_stats['company_site']}", "info")
     job_history.append({"id":run_id,"start":start_time,"end":end_time,
                         "sites":len(sites),"total":job_stats["processed"],
                         "found":job_stats["found"],"status":final_status})
@@ -582,6 +799,106 @@ def api_leads():
     conn.close()
     return jsonify([dict(r) for r in rows])
 
+@app.route("/api/emails")
+def api_emails():
+    """Return grouped email data for the Emails tab."""
+    conn = get_db()
+    search = request.args.get("search","")
+    query = "SELECT * FROM leads WHERE status='found' AND email != ''"
+    params = []
+    if search:
+        query += " AND (company_url LIKE ? OR email LIKE ? OR publisher LIKE ?)"
+        params.extend([f"%{search}%",f"%{search}%",f"%{search}%"])
+    query += " ORDER BY id DESC LIMIT 1000"
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    # Group by company domain
+    grouped = {}
+    for r in rows:
+        try:
+            comp_netloc = urlparse(r["company_url"]).netloc.lower().replace("www.","") if r["company_url"] else ""
+        except Exception:
+            comp_netloc = r["company_url"] or ""
+        key = comp_netloc or r["company_url"] or ""
+        if key not in grouped:
+            grouped[key] = {
+                "company_domain": key,
+                "company_url": r["company_url"],
+                "best_email": r["email"],
+                "best_score": r["email_score"] or 0,
+                "best_src": r["email_src"] or "",
+                "all_emails_set": set(),
+                "all_emails_detail": [],
+                "prs": [],
+                "publishers": set(),
+            }
+        g = grouped[key]
+        g["prs"].append({"pr_url": r["pr_url"], "publisher": r["publisher"], "date": r["date_published"] or ""})
+        g["publishers"].add(r["publisher"])
+        # Merge all_emails
+        try:
+            all_em = json.loads(r["all_emails"] or "[]")
+        except Exception:
+            all_em = []
+        for em_entry in all_em:
+            if isinstance(em_entry, list) and len(em_entry) >= 3:
+                em, sc, src = em_entry[0], em_entry[1], em_entry[2]
+                if em not in g["all_emails_set"]:
+                    g["all_emails_set"].add(em)
+                    g["all_emails_detail"].append([em, sc, src])
+        # Update best if higher score
+        if (r["email_score"] or 0) > g["best_score"]:
+            g["best_email"] = r["email"]
+            g["best_score"] = r["email_score"] or 0
+            g["best_src"] = r["email_src"] or ""
+        # Also add best email to all_emails_set
+        if r["email"] and r["email"] not in g["all_emails_set"]:
+            g["all_emails_set"].add(r["email"])
+            g["all_emails_detail"].append([r["email"], r["email_score"] or 0, r["email_src"] or ""])
+
+    result = []
+    for key, g in grouped.items():
+        # Sort all_emails by score desc
+        g["all_emails_detail"].sort(key=lambda x: -x[1])
+        pr_count = len(g["prs"])
+        result.append({
+            "company_domain": g["company_domain"],
+            "company_url": g["company_url"],
+            "best_email": g["best_email"],
+            "best_score": g["best_score"],
+            "best_src": g["best_src"],
+            "all_emails": g["all_emails_detail"],
+            "pr_count": pr_count,
+            "hot_lead": pr_count >= 3,
+            "prs": g["prs"][:10],
+            "publishers": list(g["publishers"]),
+        })
+
+    result.sort(key=lambda x: -x["best_score"])
+    return jsonify(result)
+
+@app.route("/api/retry_email/<int:lead_id>", methods=["POST"])
+def retry_email(lead_id):
+    """Re-run email extraction for a single lead."""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"ok":False,"msg":"Lead not found"})
+    company_url = row["company_url"]
+    pr_url = row["pr_url"]
+    # Fetch PR HTML fresh
+    pr_html = fetch(pr_url)
+    email, email_src, score, all_emails_list = find_email_smart(company_url, pr_html=pr_html, pr_url=pr_url)
+    if email:
+        conn.execute("UPDATE leads SET email=?,email_score=?,email_src=?,status=?,all_emails=? WHERE id=?",
+                     (email, score, email_src, "found", json.dumps(all_emails_list), lead_id))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok":True,"email":email,"score":score,"email_src":email_src,"all_emails":all_emails_list})
+    conn.close()
+    return jsonify({"ok":False,"msg":"No email found"})
+
 @app.route("/api/stats")
 def api_stats():
     conn = get_db()
@@ -589,13 +906,11 @@ def api_stats():
     f = conn.execute("SELECT COUNT(*) FROM leads WHERE status='found'").fetchone()[0]
     n = conn.execute("SELECT COUNT(*) FROM leads WHERE status='no_email'").fetchone()[0]
     e = conn.execute("SELECT COUNT(*) FROM leads WHERE status='no_company'").fetchone()[0]
-    # Duplicate detection: same email appearing from multiple PRs
     dups = conn.execute("""SELECT email, COUNT(*) as cnt FROM leads
-                           WHERE email != '' GROUP BY email HAVING cnt > 1""").fetchall()
-    # Publisher stats
+        WHERE email != '' GROUP BY email HAVING cnt > 1""").fetchall()
     pub_stats = conn.execute("""SELECT publisher, COUNT(*) as total,
-                                SUM(CASE WHEN status='found' THEN 1 ELSE 0 END) as found
-                                FROM leads GROUP BY publisher ORDER BY total DESC""").fetchall()
+        SUM(CASE WHEN status='found' THEN 1 ELSE 0 END) as found
+        FROM leads GROUP BY publisher ORDER BY total DESC""").fetchall()
     conn.close()
     return jsonify({"total":t,"found":f,"no_email":n,"failed":e,
                     "duplicates":len(dups),"publisher_stats":[dict(r) for r in pub_stats]})
@@ -615,7 +930,7 @@ def export_excel():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "PR Leads"
-    hdrs = ["ID","Timestamp","Publisher","PR URL","Company Website","Email","Score","Source","Status","Date Published"]
+    hdrs = ["ID","Timestamp","Publisher","PR URL","Company Website","Email","Score","Source","Status","Date Published","All Emails"]
     hfill = PatternFill("solid", start_color="1a1f36")
     green_fill = PatternFill("solid", start_color="d4edda")
     amber_fill = PatternFill("solid", start_color="fff3cd")
@@ -634,38 +949,123 @@ def export_excel():
             row_fill = amber_fill
         else:
             row_fill = red_fill
+        try:
+            all_em = json.loads(row["all_emails"] or "[]")
+            all_em_str = ", ".join(em[0] for em in all_em if isinstance(em, list) and len(em) > 0)
+        except Exception:
+            all_em_str = ""
         vals = [row["id"],row["ts"],row["publisher"],row["pr_url"],
                 row["company_url"],row["email"],row["email_score"],row["email_src"],
-                status,row["date_published"]]
+                status,row["date_published"],all_em_str]
         for ci,val in enumerate(vals,1):
             c = ws.cell(row=ri,column=ci,value=val)
             c.fill = row_fill
             c.font = Font(name="Calibri",size=10)
             c.alignment = Alignment(horizontal="left",vertical="center",wrap_text=False)
-    for i,w in enumerate([6,20,20,60,40,30,8,50,14,14],1):
+    for i,w in enumerate([6,20,20,60,40,30,8,50,14,14,60],1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
-    # Sheet 2: Publisher summary
-    ws2 = wb.create_sheet("Publisher Summary")
-    ws2.append(["Publisher","Total PRs","Emails Found","Success Rate"])
+    # Sheet 2: Emails grouped
+    ws2 = wb.create_sheet("Emails")
+    ws2.append(["Company Domain","Best Email","Score","Source","All Emails","PR Count","Hot Lead","Publishers"])
     h2fill = PatternFill("solid", start_color="1a1f36")
     for c in ws2[1]:
         c.fill = h2fill
         c.font = Font(bold=True,color="FFFFFF",size=11)
         c.alignment = Alignment(horizontal="center")
+    # Get email data
     conn2 = get_db()
-    pub_rows = conn2.execute("""SELECT publisher,COUNT(*) as total,
-                               SUM(CASE WHEN status='found' THEN 1 ELSE 0 END) as found
-                               FROM leads GROUP BY publisher ORDER BY total DESC""").fetchall()
+    email_rows = conn2.execute("SELECT * FROM leads WHERE status='found' AND email != '' ORDER BY email_score DESC").fetchall()
     conn2.close()
+    seen_domains = set()
+    for er in email_rows:
+        try:
+            dom = urlparse(er["company_url"]).netloc.lower().replace("www.","")
+        except Exception:
+            dom = er["company_url"] or ""
+        if dom in seen_domains:
+            continue
+        seen_domains.add(dom)
+        try:
+            all_em = json.loads(er["all_emails"] or "[]")
+            all_em_str = ", ".join(em[0] for em in all_em if isinstance(em, list) and len(em) > 0)
+        except Exception:
+            all_em_str = er["email"]
+        ws2.append([dom, er["email"], er["email_score"] or 0, er["email_src"] or "", all_em_str, 1, "No", er["publisher"]])
+    # Sheet 3: Publisher summary
+    ws3 = wb.create_sheet("Publisher Summary")
+    ws3.append(["Publisher","Total PRs","Emails Found","Success Rate"])
+    h3fill = PatternFill("solid", start_color="1a1f36")
+    for c in ws3[1]:
+        c.fill = h3fill
+        c.font = Font(bold=True,color="FFFFFF",size=11)
+        c.alignment = Alignment(horizontal="center")
+    conn3 = get_db()
+    pub_rows = conn3.execute("""SELECT publisher,COUNT(*) as total,
+        SUM(CASE WHEN status='found' THEN 1 ELSE 0 END) as found
+        FROM leads GROUP BY publisher ORDER BY total DESC""").fetchall()
+    conn3.close()
     for pr in pub_rows:
         rate = f"{int(pr['found']/pr['total']*100)}%" if pr['total'] > 0 else "0%"
-        ws2.append([pr["publisher"],pr["total"],pr["found"],rate])
-    for i,w in enumerate([25,12,14,14],1):
-        ws2.column_dimensions[get_column_letter(i)].width = w
+        ws3.append([pr["publisher"],pr["total"],pr["found"],rate])
     wb.save(OUTPUT_FILE)
     return send_file(OUTPUT_FILE, as_attachment=True)
+
+@app.route("/api/export_emails")
+def export_emails_excel():
+    """Export just the emails tab data."""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM leads WHERE status='found' AND email != '' ORDER BY email_score DESC").fetchall()
+    conn.close()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Emails"
+    hdrs = ["Company Domain","All Emails Found","Best Email","Score","Source","Publisher","PR Link","Date"]
+    hfill = PatternFill("solid", start_color="1a1f36")
+    for i,h in enumerate(hdrs,1):
+        c = ws.cell(row=1,column=i,value=h)
+        c.fill = hfill
+        c.font = Font(name="Calibri",bold=True,color="FFFFFF",size=11)
+        c.alignment = Alignment(horizontal="center",vertical="center")
+    ws.row_dimensions[1].height = 22
+    seen_domains = {}
+    for row in rows:
+        try:
+            dom = urlparse(row["company_url"]).netloc.lower().replace("www.","")
+        except Exception:
+            dom = row["company_url"] or ""
+        if dom not in seen_domains:
+            seen_domains[dom] = {"best_email": row["email"], "best_score": row["email_score"] or 0,
+                                 "best_src": row["email_src"] or "", "publisher": row["publisher"],
+                                 "pr_url": row["pr_url"], "date": row["date_published"] or "",
+                                 "all_emails": set()}
+        g = seen_domains[dom]
+        g["all_emails"].add(row["email"])
+        if (row["email_score"] or 0) > g["best_score"]:
+            g["best_email"] = row["email"]
+            g["best_score"] = row["email_score"] or 0
+            g["best_src"] = row["email_src"] or ""
+    ri = 2
+    green_fill = PatternFill("solid", start_color="c6efce")
+    for dom, g in sorted(seen_domains.items(), key=lambda x: -x[1]["best_score"]):
+        all_em_str = ", ".join(sorted(g["all_emails"]))
+        vals = [dom, all_em_str, g["best_email"], g["best_score"], g["best_src"],
+                g["publisher"], g["pr_url"], g["date"]]
+        for ci, val in enumerate(vals, 1):
+            c = ws.cell(row=ri, column=ci, value=val)
+            c.font = Font(name="Calibri", size=10)
+            c.alignment = Alignment(horizontal="left", vertical="center")
+            if ci == 3:  # Best email column - green
+                c.fill = green_fill
+        ri += 1
+    for i, w in enumerate([30, 50, 30, 8, 25, 20, 60, 14], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    fname = "PR_Emails.xlsx"
+    wb.save(fname)
+    return send_file(fname, as_attachment=True)
 
 @app.route("/api/export_csv")
 def export_csv():
@@ -674,11 +1074,16 @@ def export_csv():
     conn.close()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["ID","Timestamp","Publisher","PR URL","Company Website","Email","Score","Source","Status","Date Published"])
+    writer.writerow(["ID","Timestamp","Publisher","PR URL","Company Website","Email","Score","Source","Status","Date Published","All Emails"])
     for row in rows:
+        try:
+            all_em = json.loads(row["all_emails"] or "[]")
+            all_em_str = "|".join(em[0] for em in all_em if isinstance(em, list) and len(em) > 0)
+        except Exception:
+            all_em_str = ""
         writer.writerow([row["id"],row["ts"],row["publisher"],row["pr_url"],
-                        row["company_url"],row["email"],row["email_score"],
-                        row["email_src"],row["status"],row["date_published"]])
+                         row["company_url"],row["email"],row["email_score"],
+                         row["email_src"],row["status"],row["date_published"],all_em_str])
     output.seek(0)
     return Response(output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition":"attachment;filename=PR_Leads.csv"})
